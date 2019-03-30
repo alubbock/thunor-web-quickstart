@@ -1,0 +1,41 @@
+version: '2.1'
+services:
+  app:
+    image: alubbock/thunorweb:latest
+    volumes:
+      - static-assets:/thunor/_state/thunor-static:ro
+      - ./_state/thunor-files:/thunor/_state/thunor-files
+  nginx:
+    image: nginx:mainline
+    volumes:
+      - ./_state/nginx-config/nginx.base.conf:/etc/nginx/nginx.conf:ro
+      - ./_state/nginx-config/nginx.site.conf:/etc/nginx/nginx.site.conf:ro
+      - ./_state/logs/nginx/:/var/log/nginx/
+      - ./_state/thunor-files/:/srv/thunor-files/:ro
+      - static-assets:/srv/thunor-static/:ro
+      - ./_state/certbot/:/etc/letsencrypt/:ro
+    ports:
+      - "80:80"
+      - "443:443"
+  postgres10:
+    image: postgres:10
+    volumes:
+      - ./_state/postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 60s
+      timeout: 30s
+      retries: 6
+  redis:
+    image: redis:latest
+    volumes:
+      - ./_state/redis-data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli","ping"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  static-assets:
