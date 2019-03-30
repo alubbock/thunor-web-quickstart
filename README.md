@@ -10,7 +10,7 @@ Thunor Web can be deployed using
 an example configuration which you can use to run Thunor Web on any
 machine with Docker Compose installed.
 
-## Pre-requisities
+## Prerequisites
 
 * **Docker** and **Docker Compose** (version 1.12 or later). Follow instructions for your platform:
     * [Docker for Windows](https://docs.docker.com/docker-for-windows/), which includes Docker Compose.
@@ -48,7 +48,7 @@ You'll want to set up an admin account so you can log in:
 If you're planning on deploying Thunor Web on any network
 accessible server, we highly recommend [enabling TLS encryption](https://docs.thunor.net/enable-https-encryption).
 
-## Other options
+## Other installation options
 
 If you're interested in editing the source code for Thunor Web,
 you'll want to use the [developer installation](https://docs.thunor.net/developer-installation)
@@ -61,3 +61,11 @@ sequence of commands described above, or you can use
 which allows remote provisioning to cloud providers including
 Azure, AWS, and Digital Ocean. This is described in
 [remote installation](https://docs.thunor.net/remote-installation).
+
+## Further reading
+
+* [Thunor website](https://www.thunor.net)
+* [Thunor Web documentation](https://docs.thunor.net)
+* [Thunor Web source code](https://github.com/alubbock/thunor-web)
+* [Thunor Core](https://github.com/alubbock/thunor), the core Python library used by Thunor Web,
+which can be used for analysis and visualization in Python scripts or Jupyter Notebooks. 
