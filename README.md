@@ -24,12 +24,16 @@ machine with Docker Compose installed.
 
 1. Download this repository:
 
+    ```
     git clone https://github.com/alubbock/thunor-web-quickstart thunorweb
     cd thunorweb
+    ```
 
 2. Run the deploy script:
 
+    ```
     python thunorctl.py deploy
+    ```
 
 That's it! Thunor Web will now be running on your machine, accessible at
 http://localhost (replace `localhost` with the hostname). Simply open
