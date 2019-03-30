@@ -4,5 +4,5 @@ services: docker
 before_install:
 - docker-compose --version
 script:
-- python thunorctl.py deploy
+- python thunorctl.py deploy --hostname=localhost
 - python thunorctl.py test
