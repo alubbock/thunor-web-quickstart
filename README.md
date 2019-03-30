@@ -22,12 +22,12 @@ machine with Docker Compose installed.
 
 ## Quick start
 
-1. Download this repository
+1. Download this repository:
 
     git clone https://github.com/alubbock/thunor-web-quickstart thunorweb
     cd thunorweb
 
-2. Run the deploy script
+2. Run the deploy script:
 
     python thunorctl.py deploy
 
