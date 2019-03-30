@@ -1,0 +1,43 @@
+version: '2.1'
+services:
+  app:
+    image: alubbock/thunorweb:latest
+    env_file:
+      - thunor-db.env
+      - thunor-app.env
+    volumes:
+      - static-assets:/thunor/_state/thunor-static:ro
+      - $THUNORHOME/_state/thunor-files:/thunor/_state/thunor-files
+    depends_on:
+      - redis
+      - postgres
+  nginx:
+    extends:
+      file: docker-compose.services.yml
+      service: nginx
+    volumes:
+      - $THUNORHOME/_state/nginx-config/nginx.base.conf:/etc/nginx/nginx.conf:ro
+      - $THUNORHOME/_state/nginx-config/nginx.site.conf:/etc/nginx/nginx.site.conf:ro
+      - $THUNORHOME/_state/logs/nginx/:/var/log/nginx/
+      - $THUNORHOME/_state/thunor-files/:/srv/thunor-files/:ro
+      - static-assets:/srv/thunor-static/:ro
+      - $THUNORHOME/_state/certbot/:/etc/letsencrypt/:ro
+    depends_on:
+      - app
+  postgres:
+    extends:
+      file: docker-compose.services.yml
+      service: postgres10
+    volumes:
+      - $THUNORHOME/_state/postgres-data:/var/lib/postgresql/data
+    env_file:
+      - thunor-db.env
+  redis:
+    extends:
+      file: docker-compose.services.yml
+      service: redis
+    volumes:
+      - $THUNORHOME/_state/redis-data:/data
+
+volumes:
+  static-assets:

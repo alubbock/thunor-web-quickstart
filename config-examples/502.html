@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="High Throughput Screening web application">
+    <meta name="author" content="Alex Lubbock">
+    <title>Thunor is currently unavailable</title>
+
+    <link rel="apple-touch-icon-precomposed" sizes="57x57" href="/static/favicon/apple-touch-icon-57x57.png" />
+    <link rel="apple-touch-icon-precomposed" sizes="114x114" href="/static/favicon/apple-touch-icon-114x114.png" />
+    <link rel="apple-touch-icon-precomposed" sizes="72x72" href="/static/favicon/apple-touch-icon-72x72.png" />
+    <link rel="apple-touch-icon-precomposed" sizes="144x144" href="/static/favicon/apple-touch-icon-144x144.png" />
+    <link rel="apple-touch-icon-precomposed" sizes="60x60" href="/static/favicon/apple-touch-icon-60x60.png" />
+    <link rel="apple-touch-icon-precomposed" sizes="120x120" href="/static/favicon/apple-touch-icon-120x120.png" />
+    <link rel="apple-touch-icon-precomposed" sizes="76x76" href="/static/favicon/apple-touch-icon-76x76.png" />
+    <link rel="apple-touch-icon-precomposed" sizes="152x152" href="/static/favicon/apple-touch-icon-152x152.png" />
+    <link rel="icon" type="image/png" href="/static/favicon/favicon-196x196.png" sizes="196x196" />
+    <link rel="icon" type="image/png" href="/static/favicon/favicon-96x96.png" sizes="96x96" />
+    <link rel="icon" type="image/png" href="/static/favicon/favicon-32x32.png" sizes="32x32" />
+    <link rel="icon" type="image/png" href="/static/favicon/favicon-16x16.png" sizes="16x16" />
+    <link rel="icon" type="image/png" href="/static/favicon/favicon-128.png" sizes="128x128" />
+    <meta name="application-name" content="Thunor"/>
+    <meta name="msapplication-TileColor" content="#002559" />
+    <meta name="msapplication-TileImage" content="/static/favicon/mstile-144x144.png" />
+    <meta name="msapplication-square70x70logo" content="/static/favicon/mstile-70x70.png" />
+    <meta name="msapplication-square150x150logo" content="/static/favicon/mstile-150x150.png" />
+    <meta name="msapplication-wide310x150logo" content="/static/favicon/mstile-310x150.png" />
+    <meta name="msapplication-square310x310logo" content="/static/favicon/mstile-310x310.png" />
+
+    <link type="text/css" rel="stylesheet"
+          href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
+    <link type="text/css" rel="stylesheet"
+          href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css">
+    <style>
+        body {
+            color: #fff;
+        }
+        .jumbotron {
+            background-color: #022559;
+            margin: 20px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+  <div class="jumbotron row">
+      <div class="col-xs-2" style="text-align:center;padding-right:0">
+          <i class="fa fa-bolt" style="font-size:126px;margin-top:20px"></i>
+      </div>
+      <div class="col-xs-10">
+    <h2>Thunor</h2>
+      <p>Currently unavailable (Code 502)</p>
+      <p>We should be back shortly. Please try refreshing the page in a few
+          minutes.</p>
+      </div>
+  </div>
+<script src="//ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js"></script>
+<script>
+    var interval_id = 0;
+    var intervals = [10, 30, 60, 120, 180, 300, 600, 1800, 3600];
+    var check_response = function() {
+        $.ajax(
+            {
+                url: window.location.href,
+                type: "HEAD",
+                complete: function (jqXHR) {
+                    switch (jqXHR.status) {
+                        case 200:
+                            window.location.reload(true);
+                            break;
+                        case 502:
+                            if(interval_id < (intervals.length - 1)) {
+                                interval_id++;
+                            }
+                            setTimeout(check_response,
+                                intervals[interval_id] * 1000);
+                    }
+                }
+            });
+    };
+    setTimeout(check_response, intervals[0] * 1000);
+</script>
+</body>
+</html>
