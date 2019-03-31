@@ -5,37 +5,41 @@ import sys
 import shutil
 import random
 import time
+import re
 import logging
 
 
 class ThunorCmdHelper(object):
     def __init__(self):
+        self.cwd = os.path.abspath(os.path.dirname(__file__))
+
+    def _set_args(self, args):
+        self.args = args
+
+        # Enable logging
+        log_level = logging.DEBUG if self.args.debug else logging.INFO
+
         self._log = logging.getLogger(self.__class__.__name__)
-        self._log.setLevel(logging.INFO)
+        self._log.setLevel(log_level)
         ch = logging.StreamHandler()
-        ch.setLevel(logging.INFO)
+        ch.setLevel(log_level)
         fmt = logging.Formatter(
             '%(name)s [%(levelname)s] %(message)s'
         )
         ch.setFormatter(fmt)
         self._log.addHandler(ch)
 
-        self.cwd = os.path.abspath(os.path.dirname(__file__))
-
-    def _set_args(self, args):
-        self.args = args
-
         if self.args.dry_run:
             self._log.warning('DRY RUN (no commands will be executed)')
 
     def _run_cmd(self, cmd, exit_on_error=True):
-        self._log.info('Command: ' + (' '.join(cmd)))
+        self._log.debug('Command: ' + (' '.join(cmd)))
         if self.args.dry_run:
             return 0
         result = subprocess.call(cmd, cwd=self.cwd)
         if exit_on_error and result != 0:
             self._log.error(
-                'Process exited with status {},'
+                'Process exited with status {}, '
                 'aborting...'.format(result)
             )
             sys.exit(result)
@@ -45,7 +49,7 @@ class ThunorCmdHelper(object):
         fromfile = os.path.join(self.cwd, fromfile)
         if not tofile.startswith('/'):
             tofile = os.path.join(self.cwd, tofile)
-        self._log.info('Copy: ' + fromfile + ' to ' + tofile)
+        self._log.debug('Copy: ' + fromfile + ' to ' + tofile)
         if self.args.dry_run:
             return
         if not overwrite and os.path.exists(tofile):
@@ -56,14 +60,14 @@ class ThunorCmdHelper(object):
     def _mkdir(self, dirname):
         if not dirname.startswith('/'):
             dirname = os.path.join(self.cwd, dirname)
-        self._log.info('Mkdir: ' + dirname)
+        self._log.debug('Mkdir: ' + dirname)
         if self.args.dry_run:
             return
         os.makedirs(dirname)
 
     def _rmdir(self, dirname):
         dirname = os.path.join(self.cwd, dirname)
-        self._log.info('Delete: ' + dirname)
+        self._log.debug('Delete: ' + dirname)
         if self.args.dry_run:
             return
         shutil.rmtree(dirname)
@@ -112,7 +116,7 @@ class ThunorCmdHelper(object):
 
     def _generate_random_key(self, filename, keyname):
         """ Replace a config file placeholder with a random key """
-        self._log.info('Keygen: {} in {}'.format(keyname, filename))
+        self._log.debug('Keygen: {} in {}'.format(keyname, filename))
         key = self._random_string()
 
         self._replace_in_file(os.path.join(self.cwd, filename),
@@ -154,6 +158,7 @@ class ThunorCmdHelper(object):
 
 class ThunorCtl(ThunorCmdHelper):
     def migrate(self):
+        self._log.info('Migrate database')
         if self.args.dev:
             return self._run_cmd(['python', 'manage.py', 'migrate'])
         else:
@@ -162,17 +167,23 @@ class ThunorCtl(ThunorCmdHelper):
 
     def thunorweb_upgrade(self):
         if self.args.dev:
+            self._log.info('Upgrade Thunor Web (dev mode)')
             from thunorbld import ThunorBld
             bld = ThunorBld()
             bld._set_args(self.args)
             bld.make_static()
         else:
-            self._run_cmd(['docker-compose', 'pull', 'app'])
-            self._run_cmd(['docker-compose', 'down', '-v'])
-            self._run_cmd(['docker-compose', 'up', '-d'])
+            if self.args.all:
+                self._log.info('Upgrade Thunor Web & all services')
+                self._run_cmd(['docker-compose', 'pull'])
+            else:
+                self._log.info('Upgrade Thunor Web')
+                self._run_cmd(['docker-compose', 'pull', 'app'])
+            self.restart()
         self.migrate()
 
     def thunorweb_purge(self):
+        self._log.info('Thunor Web purge')
         cmd = ['python', 'manage.py', 'thunor_purge']
         if self.args.verbosity > 0:
             cmd += ['--verbosity={}'.format(self.args.verbosity)]
@@ -194,6 +205,7 @@ class ThunorCtl(ThunorCmdHelper):
                 'run', '--rm', 'certbot']
 
     def _generate_dhparams(self):
+        self._log.info('Check for Diffie-Hellman parameter file')
         # Does dhparams.pem file already exist?
         file_exists = self._run_cmd(
             self._certbot_cmd +
@@ -201,31 +213,116 @@ class ThunorCtl(ThunorCmdHelper):
             exit_on_error=False
         ) == 0
         if file_exists:
-            print('Thunorctl: dhparams.pem file exists, skipping...')
+            self._log.debug('Thunorctl: dhparams.pem file exists, skipping...')
             return
+        self._log.info('Generate Diffie-Hellman parameter file')
 
         self._run_cmd(
             self._certbot_cmd + ['openssl', 'dhparam', '-out',
                                  '/etc/letsencrypt/dhparams.pem', '2048']
         )
 
-    def _generate_certificate(self):
-        cmd = self._certbot_cmd + \
-            ['certbot', '--nginx'] + self.args.letsencrypt_args
+    def _generate_certificate(self, hostname=None):
+        self._log.info('Generate certificate using certbot')
+        cmd = self._certbot_cmd + [
+            'certbot', 'certonly', '--webroot', '--webroot-path',
+            '/thunor-static']
+        if hostname:
+            cmd += ['-d', hostname]
+        if 'letsencrypt_args' in self.args:
+            cmd += self.args.letsencrypt_args
         return self._run_cmd(cmd)
 
-    def generate_certificates(self):
+    def _prompt_hostname(self, default='localhost'):
+        hostname = input('\nEnter a hostname (default: {}) : '.format(default)
+                         ).strip()
+        if not hostname:
+            hostname = default
+        return hostname
+
+    def _get_hostname(self):
+        # Try to extract hostname from thunor-app.env
+        try:
+            with open(os.path.join(self.cwd, 'thunor-app.env'), 'r') as f:
+                app_env = f.read()
+        except FileNotFoundError:
+            return self._prompt_hostname()
+
+        match = re.search('^DJANGO_HOSTNAME=(.*)$', app_env, flags=re.MULTILINE)
+        if not match:
+            return self._prompt_hostname()
+
+        hostname = match.group(1)
+        self._log.debug('Hostname set to: {}'.format(hostname))
+
+        return hostname
+
+    def _deploy_tls_config(self, hostname):
+        # Proceed with TLS deployment
+        self._log.info('Deploy TLS configuration to NGINX')
+        self._copy('config-examples/nginx.site-full.conf',
+                   '_state/nginx-config/nginx.site.conf',
+                   overwrite=True)
+        self._replace_in_file(
+            os.path.join(self.cwd, '_state/nginx-config/nginx.site.conf'),
+            '{{SERVER_NAME}}',
+            hostname
+        )
+        if 'DOCKER_MACHINE_NAME' in os.environ:
+            if not self.args.thunorhome:
+                raise ValueError('Docker Machine is active but '
+                                 '--thunorhome not set. '
+                                 'Either set --thunorhome option, or unset '
+                                 'Docker Machine environment variables '
+                                 '(docker-machine env --unset).')
+            self._run_cmd([
+                'docker-machine', 'scp',
+                '_state/nginx-config/nginx.site.conf',
+                '{}:{}/_state/nginx-config/nginx.site.conf'.format(
+                    os.environ['DOCKER_MACHINE_NAME'],
+                    self.args.thunorhome
+                )
+            ])
+        self._log.info('Trigger NGINX reload')
+        self._run_cmd(['docker-compose', 'exec', 'nginx', 'nginx', '-s',
+                       'reload'])
+
+    def generate_certificates(self, prompt=True):
+        hostname = self._get_hostname()
+        if hostname == 'localhost':
+            raise ValueError('Cannot generate TLS certificates for localhost.'
+                             'Please use a publicly accessible DNS name.')
         self._generate_dhparams()
-        self._generate_certificate()
+        self._generate_certificate(hostname)
+        if prompt:
+            print('\nAutomatically update NGINX configuration (recommended)?')
+            print('This will overwrite your nginx.site.conf file')
+            print('That is not a problem unless you made manual changes to '
+                  'that file')
+            response = ''
+            while response not in ('y', 'n'):
+                response = input('\nContinue (Y/N)? ').lower()
+
+            if response == 'n':
+                print('Please manually update your nginx.site.conf file '
+                      'to enable TLS')
+                print('Use config-examples/nginx.site-full.conf as an example')
+                print('Then restart to load the new configuration')
+                return
+        self._deploy_tls_config(hostname)
+        self._log.info('TLS successfully enabled')
 
     def renew_certificates(self):
+        self._log.info('Renew certificate using letsencrypt')
         self._run_cmd(self._certbot_cmd +
                       ['certbot', 'renew', '--non-interactive'])
 
+        self._log.info('Trigger NGINX reload')
         self._run_cmd(['docker-compose', 'exec', 'nginx', 'nginx',
                        '-s', 'reload'])
 
     def deploy(self):
+        self._log.info('Deployment start, checking prerequisites')
         if self.args.dev:
             raise ValueError('Deployment not available/needed in dev mode')
 
@@ -234,15 +331,6 @@ class ThunorCtl(ThunorCmdHelper):
                              'already installed?')
 
         self._check_docker_compose()
-
-        self._prepare_deployment_common()
-        self._copy('config-examples/docker-compose.complete.yml',
-                   'docker-compose.yml')
-
-        self._copy('config-examples/nginx.site-basic.conf',
-                   '_state/nginx-config/nginx.site.conf')
-
-        self._mkdir('_state/postgres-data')
 
         docker_machine = False
         docker_ip = None
@@ -260,6 +348,22 @@ class ThunorCtl(ThunorCmdHelper):
                 decode('utf8')
             self._log.info('Docker Machine IP is ' + docker_ip)
 
+        if not self.args.hostname:
+            self.args.hostname = self._prompt_hostname(
+                default=docker_ip if docker_ip else 'localhost')
+
+        if self.args.enable_tls and self.args.hostname in \
+                ('localhost', docker_ip):
+            raise ValueError('Cannot use --enable-tls without a web accessible '
+                             'hostname.')
+
+        if docker_machine:
+            self._replace_in_file(
+                os.path.join(self.cwd, '.env'),
+                'THUNORHOME=.',
+                'THUNORHOME={}'.format(self.args.thunorhome)
+            )
+
             self._run_cmd(['docker-machine', 'ssh', docker_machine,
                            'mkdir', '"' + self.args.thunorhome + '"'])
         elif self.args.thunorhome:
@@ -268,19 +372,18 @@ class ThunorCtl(ThunorCmdHelper):
                              'environment? If you\'re attempting a local '
                              'installation, this option is not needed.')
 
-        if not self.args.hostname:
-            if docker_ip:
-                self.args.hostname = docker_ip
-            else:
-                self.args.hostname = 'localhost'
+        self._log.info('Deploying configuration files')
 
-            new_hostname = input('Enter a hostname (default: {}) : '.format(
-                self.args.hostname
-            ))
-            if new_hostname.strip():
-                self.args.hostname = new_hostname
+        self._prepare_deployment_common()
+        self._copy('config-examples/docker-compose.complete.yml',
+                   'docker-compose.yml')
 
-        self._log.info('Set DJANGO_HOSTNAME in thunor-app.env to {}'.format(
+        self._copy('config-examples/nginx.site-basic.conf',
+                   '_state/nginx-config/nginx.site.conf')
+
+        self._mkdir('_state/postgres-data')
+
+        self._log.debug('Set DJANGO_HOSTNAME in thunor-app.env to {}'.format(
             self.args.hostname))
 
         self._replace_in_file(
@@ -294,19 +397,31 @@ class ThunorCtl(ThunorCmdHelper):
                            '{}:"{}"'.format(
                                docker_machine, self.args.thunorhome)])
 
-        self._run_cmd(['docker-compose', 'up', '-d'])
+        self._log.info('Starting database')
+        self._run_cmd(['docker-compose', 'up', '-d', 'postgres'])
 
         if not self.args.dry_run:
             self._wait_postgres()
 
         self.migrate()
 
-        print('\nDeploy complete! Next steps:')
+        self.start()
 
+        if self.args.enable_tls:
+            self.generate_certificates(prompt=False)
+
+        print('\nDeploy complete! Thunor should be available at http://{}\n'
+              .format(self.args.hostname))
+
+        print('Next steps:')
         print('* Create an admin account with '
               '"python thunorctl.py createsuperuser"')
+        if not self.args.enable_tls:
+            print('* Enable TLS encrypted connections with '
+                  '"python thunorctl.py generatecerts"')
 
     def createsuperuser(self):
+        self._log.info('Create superuser')
         if self.args.dev:
             self._run_cmd(['python', 'manage.py', 'createsuperuser'])
         else:
@@ -318,10 +433,29 @@ class ThunorCtl(ThunorCmdHelper):
             raise ValueError('For development environment tests, use '
                              '"python thunorbld.py test"')
         else:
+            self._log.info('Run test suite')
             self._run_cmd(['docker-compose', 'run', '--rm',
                            '-e', 'THUNORHOME=/thunor',
                            'app',
                            'python', 'manage.py', 'test'])
+
+    def start(self, log=True):
+        if self.args.dev:
+            raise ValueError('Not available in dev mode. Use '
+                             '"python manage.py runserver".')
+        self._log.info('Start Thunor Web')
+        self._run_cmd(['docker-compose', 'up', '-d'])
+
+    def stop(self, log=True):
+        if self.args.dev:
+            raise ValueError('Not available in dev mode.')
+        self._log.info('Stop Thunor Web')
+        self._run_cmd(['docker-compose', 'down', '-v'])
+
+    def restart(self):
+        self._log.info('Restart Thunor Web')
+        self.stop(log=False)
+        self.start(log=False)
 
     def thunorweb_version(self):
         cmd = ['python', '-c',
@@ -332,7 +466,7 @@ class ThunorCtl(ThunorCmdHelper):
         cmd = ['docker-compose', 'exec', 'app'] + cmd
         if self._run_cmd(cmd, exit_on_error=False) != 0:
             raise RuntimeError('Command failed. Please check you\'ve started '
-                               'Thunor Web with "docker-compose up -d".')
+                               'Thunor Web with "python thunorctl.py start".')
 
     def _parser(self):
         parser = argparse.ArgumentParser(prog='thunorctl.py')
@@ -341,23 +475,78 @@ class ThunorCtl(ThunorCmdHelper):
         parser.add_argument('--dry-run', action='store_true', default=False,
                             help='Dry run (don\'t execute any commands, '
                                  'just show them)')
-        parser.add_argument(
-            '--thunorhome', help=
-            'Path to Thunor Web on the target machine, or use environment '
-            'variable THUNORHOME. Not needed for local installations.')
+        parser.add_argument('--debug', action='store_true', default=False,
+                            help='Debug mode (increase verbosity)')
         subparsers = parser.add_subparsers()
 
-        parser_migrate = subparsers.add_parser(
-            'migrate', help='Initialise or migrate the database')
-        parser_migrate.set_defaults(func=self.migrate)
+        # Deploy
+        parser_deploy = subparsers.add_parser(
+            'deploy', help='Generate configuration files and start Thunor Web'
+        )
+        parser_deploy.add_argument(
+            '--hostname',
+            help='Hostname for the server (defaults to "localhost", or the '
+                 'server\'s IP address on Docker Machine). If not specified, '
+                 'an interactive prompt will be used.'
+        )
+        parser_deploy.add_argument(
+            '--enable-tls', action='store_true', default=False,
+            help='Generate TLS certificates to encrypt connections using '
+                 'certbot'
+        )
+        parser_deploy.add_argument(
+            '--thunorhome',
+            help='(Docker Machine installs only) Installation directory for '
+                 'Thunor Web on the *remote* machine.'
+        )
+        parser_deploy.set_defaults(func=self.deploy)
 
+        # Start, stop, restart
+        parser_start = subparsers.add_parser(
+            'start', help='Start Thunor Web (use "deploy" instead on first use)'
+        )
+        parser_start.set_defaults(func=self.start)
+        parser_stop = subparsers.add_parser(
+            'stop', help='Stop Thunor Web'
+        )
+        parser_stop.set_defaults(func=self.stop)
+        parser_restart = subparsers.add_parser(
+            'restart', help='Restart Thunor Web'
+        )
+        parser_restart.set_defaults(func=self.restart)
+
+        # Upgrade
+        parser_upgrade = subparsers.add_parser(
+            'upgrade', help='Upgrade Thunor Web'
+        )
+        parser_upgrade.add_argument(
+            '--all',
+            help='Upgrade all services (NGINX, PostgreSQL, etc.), not just '
+                 'Thunor Web itself',
+            action='store_true',
+            default=False
+        )
+        parser_upgrade.set_defaults(func=self.thunorweb_upgrade)
+
+        # Generate certs
         parser_generate_certs = subparsers.add_parser(
             'generatecerts', help='Generate TLS certificates. Additional '
-                                  'arguments are passed onto letsencrypt.'
+                                  'arguments are passed onto certbot.'
+        )
+        parser_generate_certs.add_argument(
+            '--thunorhome',
+            help='(Docker Machine installs only) Installation directory for '
+                 'Thunor Web on the *remote* machine.'
         )
         parser_generate_certs.add_argument('letsencrypt_args',
                                            nargs=argparse.REMAINDER)
         parser_generate_certs.set_defaults(func=self.generate_certificates)
+
+        # Renew certs
+        parser_renew_certs = subparsers.add_parser(
+            'renewcerts', help='Renew TLS certificates'
+        )
+        parser_renew_certs.set_defaults(func=self.renew_certificates)
 
         parser_thunor_purge = subparsers.add_parser(
             'purge', help='Purge Thunor Web of temporary files to reclaim disk '
@@ -367,33 +556,9 @@ class ThunorCtl(ThunorCmdHelper):
                                          default=0)
         parser_thunor_purge.set_defaults(func=self.thunorweb_purge)
 
-        parser_upgrade = subparsers.add_parser(
-            'upgrade', help='Upgrade Thunor Web. Equivalent to makestatic, '
-                            'migrate, and build called '
-                            'sequentially.'
-        )
-        parser_upgrade.set_defaults(func=self.thunorweb_upgrade)
-
-        parser_renew_certs = subparsers.add_parser(
-            'renewcerts', help='Renew TLS certificates'
-        )
-        parser_renew_certs.set_defaults(func=self.renew_certificates)
-
-        parser_deploy = subparsers.add_parser(
-            'deploy', help='Generate example configuration and start Thunor Web'
-        )
-        parser_deploy.add_argument(
-            '--hostname',
-            help='Hostname for the server (defaults to "localhost", or the '
-                 'server\'s IP address on Docker Machine). If not specified, '
-                 'an interactive prompt will be used.'
-        )
-        parser_deploy.add_argument(
-            '--thunorhome',
-            help='(Docker Machine installs only) Installation directory for '
-                 'Thunor Web on the *remote* machine.'
-        )
-        parser_deploy.set_defaults(func=self.deploy)
+        parser_migrate = subparsers.add_parser(
+            'migrate', help='Initialise or migrate the database')
+        parser_migrate.set_defaults(func=self.migrate)
 
         parser_superuser = subparsers.add_parser(
             'createsuperuser', help='Create a Thunor Web admin account'
