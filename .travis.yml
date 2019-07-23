@@ -6,3 +6,4 @@ before_install:
 script:
 - python thunorctl.py deploy --hostname=localhost
 - python thunorctl.py test
+- curl -sf "http://localhost" >/dev/null
