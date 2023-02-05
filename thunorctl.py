@@ -460,7 +460,7 @@ class ThunorCtl(ThunorCmdHelper):
         self._mkdir('_state/thunor-files/plate-files')
         self._mkdir('_state/thunor-files/downloads')
         # Ensure directories are writable by container
-        if os.posix:
+        if os.name == 'posix':
             os.chmod('_state/thunor-files/plate-files', 0o777)
             os.chmod('_state/thunor-files/downloads', 0o777)
 
