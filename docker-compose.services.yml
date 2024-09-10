@@ -1,7 +1,7 @@
 version: '2.1'
 services:
   app:
-    image: alubbock/thunorweb:latest
+    image: alubbock/thunorweb:v0.6.0
   nginx:
     image: nginx:mainline
     ports:
