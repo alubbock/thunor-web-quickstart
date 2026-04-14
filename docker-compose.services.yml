@@ -1,6 +1,6 @@
 services:
   app:
-    image: alubbock/thunorweb:v0.7.0
+    image: alubbock/thunorweb:latest
   nginx:
     image: nginx:mainline
     ports:
